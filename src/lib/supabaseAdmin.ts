@@ -1,9 +1,15 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseEnv } from "@/lib/env";
 
-// Server-only Supabase client using the service role key.
-// Never import this from a client component.
-export const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+let client: SupabaseClient | undefined;
+
+export function getSupabaseAdmin(): SupabaseClient {
+  if (client) return client;
+
+  const { url, serviceRoleKey } = getSupabaseEnv();
+  client = createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  return client;
+}

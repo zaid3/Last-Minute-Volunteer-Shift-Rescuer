@@ -1,76 +1,106 @@
 # Last-Minute Volunteer Shift Rescuer
 
-An open-source tool for charities: when a volunteer drops out at the last
-minute, a coordinator broadcasts the open shift to backup volunteers by email.
-Each volunteer receives a **single-use claim link**. The first volunteer to
-confirm claims the shift; everyone else sees a friendly "already covered"
-message -- even if they click at the exact same moment.
+Last-Minute Volunteer Shift Rescuer helps charities fill urgent rota gaps when a scheduled volunteer cancels or does not arrive.
+
+A coordinator creates a shift and alerts active backup volunteers by email. Each volunteer receives a unique claim link. The first person to confirm is assigned to the shift; later claim attempts receive a clear “already covered” response.
+
+## Why this exists
+
+Last-minute volunteer absence can interrupt food distribution, community support, events and other time-sensitive services. Coordinators often respond by calling people individually or posting in group chats. That process is slow, difficult to track and vulnerable to duplicate confirmations.
+
+This project provides a small, auditable workflow for urgent cover:
+
+1. A coordinator records an open shift.
+2. The system creates one claim token per active volunteer.
+3. Volunteers receive personalised email alerts.
+4. A volunteer reviews the shift and explicitly confirms availability.
+5. A PostgreSQL transaction assigns the first valid claimant.
+6. The volunteer and coordinator receive confirmation emails.
+7. The action is recorded in an audit trail.
+
+## Current capabilities
+
+- Password-protected coordinator area
+- Create and review urgent shifts
+- Add and manage active volunteers
+- Broadcast an open shift to active volunteers by email
+- Unique, expiring claim link for each volunteer
+- POST-only confirmation to avoid accidental claims by email link scanners
+- Race-safe database claim function using `SELECT ... FOR UPDATE`
+- Volunteer confirmation and coordinator notification emails
+- Audit events and notification delivery records
+- Deny-all Row Level Security for browser and anonymous database access
+- Unit tests for validation logic
+- A concurrency test script for a real Supabase environment
+- GitHub Actions checks for type safety and tests
 
 ## Architecture
 
-- **Next.js (App Router)** -- server components + route handlers, deployable on Vercel's free tier
-- **Supabase (PostgreSQL)** -- data layer; all access via the service role from the server only (RLS locked down, no client-side DB access)
-- **Resend** -- transactional email dispatch for shift alerts
+- **Next.js 15 and TypeScript** for the application and server route handlers
+- **Supabase/PostgreSQL** for persistent data and transactional shift assignment
+- **Resend** for transactional email delivery
 
-```
-Coordinator --POST /api/broadcast--> create single-use tokens --> Resend emails
-Volunteer   --clicks link--> /claim/[token]  (confirmation page, no side effects on GET)
-            --confirms (POST /api/claim)--> claim_shift() RPC --> claimed | already_claimed
-```
-
-## Concurrency design
-
-The claim path is race-safe at the database level. `claim_shift()` is a
-PostgreSQL function that takes a **row-level lock** on the shift
-(`SELECT ... FOR UPDATE`) before checking and updating its status. Concurrent
-claims on the same shift serialize on the lock: the first transaction commits
-`status = 'claimed'`; waiting transactions then observe the committed state
-and return `already_claimed`. No advisory locks, no application-level
-mutexes, no double-booking.
-
-Claims are deliberately **not** executed on the GET request from the email
-link -- email security scanners prefetch URLs, which would silently claim
-shifts. The link lands on a confirmation page and the claim happens on an
-explicit POST.
-
-## Setup
-
-1. Create a [Supabase](https://supabase.com) project and run
-   `supabase/migrations/0001_init.sql` in the SQL editor.
-2. Create a [Resend](https://resend.com) API key and verify a sending domain
-   (or use the sandbox sender for testing).
-3. Copy `.env.example` to `.env.local` and fill in the values.
-4. `npm install && npm run dev`
-
-## API
-
-### `POST /api/broadcast`
-
-Coordinator-only (requires `x-manager-key` header matching `MANAGER_API_KEY`).
-
-```json
-{ "shift_id": "<uuid>" }
+```text
+Coordinator dashboard
+        |
+        | create shift / manage volunteers / broadcast
+        v
+Next.js server routes -----> Supabase PostgreSQL
+        |                         |
+        |                         | claim_shift(token)
+        |                         | row lock + atomic update
+        v                         v
+     Resend email <--------- claim confirmation
 ```
 
-Creates one single-use token per active volunteer and emails each of them a
-claim link. Returns `{ "alerted": n, "failed": m }`.
+### Concurrency control
 
-### `POST /api/claim`
+`claim_shift()` locks the target shift row before checking its status. Concurrent claims for the same shift therefore serialize inside PostgreSQL. One transaction changes the shift from `open` to `claimed`; waiting transactions then see the committed state and return `already_claimed`.
 
-Form post from the confirmation page (`token` field). Calls the `claim_shift`
-RPC and redirects back to the claim page with the outcome.
+### Link scanner protection
 
-## Status and roadmap
+Opening `/claim/[token]` only displays the shift and confirmation form. It does not modify data. A claim occurs only after the volunteer submits an explicit `POST /api/claim` request. This prevents automated email security scanners from claiming shifts while checking links.
 
-Early-stage scaffold, built with AI-assisted development. Roadmap:
+## Local setup
 
-- Coordinator dashboard (create shifts, trigger broadcasts, see who claimed)
-- Confirmation email to the claiming volunteer + notification to coordinator
-- Waitlist / second-chance reassignment if a claimer later drops out
-- Scheduled sweep to mark unclaimed past shifts as `expired`
-- Concurrency test harness (parallel claim storm against a single shift)
-- SMS channel
+1. Create a Supabase project.
+2. Run the SQL files in `supabase/migrations` in filename order.
+3. Create a Resend API key and verify a sending domain.
+4. Copy `.env.example` to `.env.local` and fill in every required value.
+5. Install and run the application:
 
-## License
+```bash
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000/coordinator/login` and sign in with `COORDINATOR_PASSWORD`.
+
+## Testing
+
+```bash
+npm run typecheck
+npm test
+```
+
+The database concurrency test requires a configured Supabase project and two unused claim tokens for the same shift:
+
+```bash
+CLAIM_TOKEN_A=<uuid> CLAIM_TOKEN_B=<uuid> npm run test:concurrency
+```
+
+The script fails unless exactly one claim succeeds.
+
+## Project status
+
+This repository contains a working MVP architecture. It still requires deployment-specific configuration, a real charity pilot and production monitoring before operational use. The roadmap is documented in [`docs/roadmap.md`](docs/roadmap.md).
+
+No adoption, performance or social-impact figures are claimed until they are measured in a real pilot. The measurement plan is documented in [`docs/impact-measurement.md`](docs/impact-measurement.md).
+
+## Security and privacy
+
+The project processes volunteer names and email addresses. Review [`SECURITY.md`](SECURITY.md) and [`docs/security-and-privacy.md`](docs/security-and-privacy.md) before deployment.
+
+## Licence
 
 MIT

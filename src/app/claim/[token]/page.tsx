@@ -1,17 +1,31 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import type { Metadata } from "next";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { isValidUuid } from "@/lib/validation";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const metadata: Metadata = { title: "Volunteer shift" };
+export const dynamic = "force-dynamic";
 
-function fmt(d: string) {
-  return new Date(d).toLocaleString("en-GB", {
-    weekday: "short",
+function formatDate(value: string, timeZone: string) {
+  return new Date(value).toLocaleString("en-GB", {
+    timeZone,
+    weekday: "long",
     day: "numeric",
-    month: "short",
+    month: "long",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
 }
+
+type ShiftRelation = {
+  id: string;
+  title: string;
+  location: string | null;
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+  status: string;
+};
 
 export default async function ClaimPage(props: {
   params: Promise<{ token: string }>;
@@ -20,85 +34,82 @@ export default async function ClaimPage(props: {
   const { token } = await props.params;
   const { status } = await props.searchParams;
 
-  // Post-claim result states (redirected back from /api/claim)
   if (status === "claimed") {
     return (
       <main>
-        <div className="card success">
-          <h1>You&apos;re on the rota</h1>
-          <p>Thank you &mdash; this shift is now yours. Your coordinator has been notified.</p>
+        <div className="card result-card success-card">
+          <p className="result-icon" aria-hidden="true">✓</p>
+          <h1>You are confirmed</h1>
+          <p>Your acceptance has been recorded and the shift is now covered.</p>
         </div>
       </main>
     );
   }
+
   if (status === "already_claimed" || status === "token_used") {
     return (
       <main>
-        <div className="card notice">
-          <h1>Already covered</h1>
-          <p>
-            Another volunteer got there first &mdash; thank you so much for
-            offering. We&apos;ll be in touch about the next one.
-          </p>
+        <div className="card result-card notice-card">
+          <p className="result-icon" aria-hidden="true">i</p>
+          <h1>The shift is already covered</h1>
+          <p>Another volunteer confirmed first. Thank you for responding so quickly.</p>
         </div>
       </main>
     );
   }
+
   if (status === "expired" || status === "invalid_token" || status === "error") {
     return (
       <main>
-        <div className="card notice">
+        <div className="card result-card notice-card">
           <h1>This link is no longer valid</h1>
-          <p>The claim window may have closed. Please contact your coordinator.</p>
+          <p>The claim window may have closed. Please contact the coordinator if you need help.</p>
         </div>
       </main>
     );
   }
 
-  // Initial GET: validate the token and show a confirmation form.
-  // Deliberately NO side effects here - email scanners prefetch links.
-  if (!UUID_RE.test(token)) {
+  if (!isValidUuid(token)) {
     return (
       <main>
-        <div className="card notice">
-          <h1>Invalid link</h1>
-          <p>Please contact your coordinator.</p>
+        <div className="card result-card notice-card">
+          <h1>Invalid claim link</h1>
+          <p>Please check the link in your email or contact the coordinator.</p>
         </div>
       </main>
     );
   }
 
-  const { data: t } = await supabaseAdmin
+  const { data: claimToken } = await getSupabaseAdmin()
     .from("claim_tokens")
-    .select(
-      "token, used_at, expires_at, shifts ( title, location, starts_at, ends_at, status )"
-    )
+    .select("token,used_at,expires_at,shifts(id,title,location,starts_at,ends_at,timezone,status)")
     .eq("token", token)
     .maybeSingle();
 
-  const shift = (t as { shifts?: Record<string, string> } | null)?.shifts;
+  const relation = claimToken?.shifts as unknown;
+  const shift = (Array.isArray(relation) ? relation[0] : relation) as ShiftRelation | undefined;
 
-  if (!t || !shift) {
+  if (!claimToken || !shift) {
     return (
       <main>
-        <div className="card notice">
-          <h1>Invalid link</h1>
-          <p>Please contact your coordinator.</p>
+        <div className="card result-card notice-card">
+          <h1>Invalid claim link</h1>
+          <p>Please contact the coordinator.</p>
         </div>
       </main>
     );
   }
 
   if (
-    t.used_at ||
+    claimToken.used_at ||
     shift.status !== "open" ||
-    new Date(t.expires_at) < new Date()
+    new Date(claimToken.expires_at) <= new Date()
   ) {
     return (
       <main>
-        <div className="card notice">
-          <h1>Already covered or closed</h1>
-          <p>This shift is no longer available &mdash; thank you for checking.</p>
+        <div className="card result-card notice-card">
+          <h1>This shift is no longer available</h1>
+          <p>Thank you for checking. The shift has been covered, cancelled or closed.</p>
         </div>
       </main>
     );
@@ -106,20 +117,29 @@ export default async function ClaimPage(props: {
 
   return (
     <main>
-      <div className="card">
+      <div className="card claim-card">
+        <p className="eyebrow">Urgent volunteer cover</p>
         <h1>{shift.title}</h1>
-        <ul className="shift-meta">
-          <li>
-            {fmt(shift.starts_at)} &rarr; {fmt(shift.ends_at)}
-          </li>
-          {shift.location && <li>{shift.location}</li>}
-        </ul>
-        <p className="muted">First to confirm gets the shift.</p>
+        <dl className="shift-details">
+          <div>
+            <dt>Starts</dt>
+            <dd>{formatDate(shift.starts_at, shift.timezone)}</dd>
+          </div>
+          <div>
+            <dt>Ends</dt>
+            <dd>{formatDate(shift.ends_at, shift.timezone)}</dd>
+          </div>
+          <div>
+            <dt>Location</dt>
+            <dd>{shift.location || "Contact the coordinator"}</dd>
+          </div>
+        </dl>
+        <p className="muted">
+          Confirm only when you are available. The first volunteer to confirm will be assigned.
+        </p>
         <form action="/api/claim" method="post">
           <input type="hidden" name="token" value={token} />
-          <button className="claim" type="submit">
-            Yes, I&apos;ll take this shift
-          </button>
+          <button className="button full-button" type="submit">Yes, I can cover this shift</button>
         </form>
       </div>
     </main>
