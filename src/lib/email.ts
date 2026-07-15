@@ -11,6 +11,12 @@ export type ShiftEmailDetails = {
   timezone: string;
 };
 
+export type OrganisationEmailDetails = {
+  id: string;
+  name: string;
+  contact_email: string;
+};
+
 let resend: Resend | undefined;
 
 function getResend(): Resend {
@@ -31,6 +37,7 @@ function formatDate(value: string, timeZone: string): string {
 }
 
 async function recordNotification(input: {
+  organisationId: string;
   shiftId: string;
   volunteerId?: string | null;
   recipient: string;
@@ -40,6 +47,7 @@ async function recordNotification(input: {
   error?: string | null;
 }) {
   const { error } = await getSupabaseAdmin().from("notification_log").insert({
+    organisation_id: input.organisationId,
     shift_id: input.shiftId,
     volunteer_id: input.volunteerId ?? null,
     recipient: input.recipient,
@@ -53,6 +61,7 @@ async function recordNotification(input: {
 }
 
 export async function sendShiftAlert(input: {
+  organisation: OrganisationEmailDetails;
   volunteer: { id: string; name: string; email: string };
   shift: ShiftEmailDetails;
   claimUrl: string;
@@ -61,11 +70,11 @@ export async function sendShiftAlert(input: {
   const { data, error } = await getResend().emails.send({
     from: env.from,
     to: input.volunteer.email,
-    subject: `Urgent volunteer cover: ${input.shift.title}`,
+    subject: `${input.organisation.name}: urgent volunteer cover for ${input.shift.title}`,
     text: [
       `Hi ${input.volunteer.name},`,
       "",
-      "A volunteer shift needs last-minute cover:",
+      `${input.organisation.name} needs last-minute volunteer cover:`,
       "",
       input.shift.title,
       formatDate(input.shift.starts_at, input.shift.timezone),
@@ -79,6 +88,7 @@ export async function sendShiftAlert(input: {
   });
 
   await recordNotification({
+    organisationId: input.organisation.id,
     shiftId: input.shift.id,
     volunteerId: input.volunteer.id,
     recipient: input.volunteer.email,
@@ -92,6 +102,7 @@ export async function sendShiftAlert(input: {
 }
 
 export async function sendClaimNotifications(input: {
+  organisation: OrganisationEmailDetails;
   volunteer: { id: string; name: string; email: string };
   shift: ShiftEmailDetails;
 }): Promise<void> {
@@ -102,21 +113,22 @@ export async function sendClaimNotifications(input: {
   const volunteerResult = await getResend().emails.send({
     from: env.from,
     to: input.volunteer.email,
-    subject: `Confirmed: ${input.shift.title}`,
+    subject: `${input.organisation.name}: confirmed for ${input.shift.title}`,
     text: [
       `Hi ${input.volunteer.name},`,
       "",
-      "Thank you. You are confirmed for this volunteer shift:",
+      `Thank you. You are confirmed for this ${input.organisation.name} volunteer shift:`,
       "",
       input.shift.title,
       when,
       location,
       "",
-      "Please contact the coordinator if your availability changes.",
+      "Please contact the organisation if your availability changes.",
     ].join("\n"),
   });
 
   await recordNotification({
+    organisationId: input.organisation.id,
     shiftId: input.shift.id,
     volunteerId: input.volunteer.id,
     recipient: input.volunteer.email,
@@ -128,10 +140,10 @@ export async function sendClaimNotifications(input: {
 
   const coordinatorResult = await getResend().emails.send({
     from: env.from,
-    to: env.coordinatorEmail,
+    to: input.organisation.contact_email,
     subject: `Shift covered: ${input.shift.title}`,
     text: [
-      "The urgent shift has been covered.",
+      `${input.organisation.name}'s urgent shift has been covered.`,
       "",
       `Volunteer: ${input.volunteer.name} <${input.volunteer.email}>`,
       `Shift: ${input.shift.title}`,
@@ -141,9 +153,10 @@ export async function sendClaimNotifications(input: {
   });
 
   await recordNotification({
+    organisationId: input.organisation.id,
     shiftId: input.shift.id,
     volunteerId: input.volunteer.id,
-    recipient: env.coordinatorEmail,
+    recipient: input.organisation.contact_email,
     kind: "coordinator_claim_notice",
     status: coordinatorResult.error ? "failed" : "sent",
     providerId: coordinatorResult.data?.id,
