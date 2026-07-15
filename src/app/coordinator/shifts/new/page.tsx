@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { CoordinatorNav } from "@/components/CoordinatorNav";
-import { isCoordinatorAuthenticated } from "@/lib/auth";
+import { getCoordinatorSession } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Create shift" };
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function NewShiftPage(props: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  if (!(await isCoordinatorAuthenticated())) redirect("/coordinator/login");
+  if (!(await getCoordinatorSession())) redirect("/coordinator/login");
   const { error } = await props.searchParams;
 
   return (
