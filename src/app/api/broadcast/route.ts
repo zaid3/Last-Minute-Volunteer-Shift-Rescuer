@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { isCoordinatorAuthenticated } from "@/lib/auth";
+import { getCoordinatorSession } from "@/lib/auth";
 import { recordAuditEvent } from "@/lib/audit";
-import { sendShiftAlert, type ShiftEmailDetails } from "@/lib/email";
+import {
+  sendShiftAlert,
+  type OrganisationEmailDetails,
+  type ShiftEmailDetails,
+} from "@/lib/email";
 import { hasManagerApiKey, isSameOrigin } from "@/lib/security";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { cleanText, isValidUuid } from "@/lib/validation";
@@ -14,12 +18,12 @@ function dashboardRedirect(req: Request, key: "message" | "error", value: string
 
 export async function POST(req: Request) {
   const machineAccess = hasManagerApiKey(req);
-  const coordinatorAccess = await isCoordinatorAuthenticated();
+  const session = await getCoordinatorSession();
 
-  if (!machineAccess && !coordinatorAccess) {
+  if (!machineAccess && !session) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (coordinatorAccess && !machineAccess && !isSameOrigin(req)) {
+  if (session && !machineAccess && !isSameOrigin(req)) {
     return NextResponse.json({ error: "invalid origin" }, { status: 403 });
   }
 
@@ -35,6 +39,15 @@ export async function POST(req: Request) {
     shiftId = cleanText(body.shift_id, 40);
   }
 
+  const organisationId = session?.organisationId
+    ?? cleanText(req.headers.get("x-organisation-id"), 40);
+
+  if (!isValidUuid(organisationId)) {
+    return isForm
+      ? dashboardRedirect(req, "error", "A valid organisation is required.")
+      : NextResponse.json({ error: "valid x-organisation-id required" }, { status: 400 });
+  }
+
   if (!isValidUuid(shiftId)) {
     return isForm
       ? dashboardRedirect(req, "error", "A valid shift is required.")
@@ -42,20 +55,38 @@ export async function POST(req: Request) {
   }
 
   const db = getSupabaseAdmin();
-  const { data: shift, error: shiftError } = await db
-    .from("shifts")
-    .select("id,title,location,starts_at,ends_at,timezone,status")
-    .eq("id", shiftId)
-    .maybeSingle();
+  const [organisationResult, shiftResult] = await Promise.all([
+    db
+      .from("organisations")
+      .select("id,name,contact_email,status")
+      .eq("id", organisationId)
+      .maybeSingle(),
+    db
+      .from("shifts")
+      .select("id,title,location,starts_at,ends_at,timezone,status")
+      .eq("id", shiftId)
+      .eq("organisation_id", organisationId)
+      .maybeSingle(),
+  ]);
 
-  if (shiftError) {
+  if (organisationResult.error || shiftResult.error) {
+    const message = organisationResult.error?.message ?? shiftResult.error?.message ?? "Database error.";
     return isForm
-      ? dashboardRedirect(req, "error", shiftError.message)
-      : NextResponse.json({ error: shiftError.message }, { status: 500 });
+      ? dashboardRedirect(req, "error", message)
+      : NextResponse.json({ error: message }, { status: 500 });
+  }
+
+  const organisation = organisationResult.data;
+  const shift = shiftResult.data;
+
+  if (!organisation || organisation.status !== "active") {
+    return isForm
+      ? dashboardRedirect(req, "error", "Organisation is not active.")
+      : NextResponse.json({ error: "organisation not active" }, { status: 403 });
   }
   if (!shift) {
     return isForm
-      ? dashboardRedirect(req, "error", "Shift not found.")
+      ? dashboardRedirect(req, "error", "Shift not found in your organisation.")
       : NextResponse.json({ error: "shift not found" }, { status: 404 });
   }
   if (shift.status !== "open") {
@@ -72,6 +103,7 @@ export async function POST(req: Request) {
   const { data: volunteers, error: volunteerError } = await db
     .from("volunteers")
     .select("id,name,email")
+    .eq("organisation_id", organisationId)
     .eq("active", true)
     .order("created_at");
 
@@ -87,6 +119,7 @@ export async function POST(req: Request) {
   }
 
   const tokenRows = volunteers.map((volunteer) => ({
+    organisation_id: organisationId,
     shift_id: shiftId,
     volunteer_id: volunteer.id,
     expires_at: shift.starts_at,
@@ -118,6 +151,7 @@ export async function POST(req: Request) {
 
     try {
       const sent = await sendShiftAlert({
+        organisation: organisation as OrganisationEmailDetails,
         volunteer,
         shift: shift as ShiftEmailDetails,
         claimUrl: `${baseUrl}/claim/${token}`,
@@ -130,6 +164,7 @@ export async function POST(req: Request) {
   }
 
   await recordAuditEvent({
+    organisationId,
     eventType: "shift_broadcast",
     shiftId,
     metadata: { active_volunteers: volunteers.length, alerted, failed },
