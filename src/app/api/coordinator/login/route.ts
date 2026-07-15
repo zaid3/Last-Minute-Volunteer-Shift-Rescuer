@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createSessionToken,
+  type CoordinatorRole,
   SESSION_COOKIE,
   sessionCookieOptions,
   verifyPassword,
@@ -49,7 +50,7 @@ export async function POST(req: Request) {
     createSessionToken({
       coordinatorId: coordinator.id,
       organisationId: coordinator.organisation_id,
-      role: coordinator.role,
+      role: coordinator.role as CoordinatorRole,
     }),
     sessionCookieOptions,
   );
