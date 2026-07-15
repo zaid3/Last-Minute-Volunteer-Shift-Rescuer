@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isCoordinatorAuthenticated } from "@/lib/auth";
+import { getCoordinatorSession } from "@/lib/auth";
 import { recordAuditEvent } from "@/lib/audit";
 import { isSameOrigin } from "@/lib/security";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -12,7 +12,8 @@ function redirectWith(req: Request, path: string, key: "message" | "error", valu
 }
 
 export async function POST(req: Request) {
-  if (!(await isCoordinatorAuthenticated())) {
+  const session = await getCoordinatorSession();
+  if (!session) {
     return NextResponse.redirect(new URL("/coordinator/login", req.url), 303);
   }
   if (!isSameOrigin(req)) {
@@ -22,6 +23,7 @@ export async function POST(req: Request) {
   const form = await req.formData();
   const action = cleanText(form.get("action"), 20);
   const db = getSupabaseAdmin();
+  const organisationId = session.organisationId;
 
   if (action === "cancel") {
     const shiftId = cleanText(form.get("shift_id"), 40);
@@ -31,14 +33,15 @@ export async function POST(req: Request) {
       .from("shifts")
       .update({ status: "cancelled" })
       .eq("id", shiftId)
+      .eq("organisation_id", organisationId)
       .eq("status", "open")
       .select("id")
       .maybeSingle();
 
     if (error) return redirectWith(req, "/coordinator", "error", error.message);
-    if (!data) return redirectWith(req, "/coordinator", "error", "Only an open shift can be cancelled.");
+    if (!data) return redirectWith(req, "/coordinator", "error", "Only an open shift in your organisation can be cancelled.");
 
-    await recordAuditEvent({ eventType: "shift_cancelled", shiftId });
+    await recordAuditEvent({ organisationId, eventType: "shift_cancelled", shiftId });
     return redirectWith(req, "/coordinator", "message", "Shift cancelled.");
   }
 
@@ -55,6 +58,7 @@ export async function POST(req: Request) {
   const { data, error } = await db
     .from("shifts")
     .insert({
+      organisation_id: organisationId,
       title: result.value.title,
       location: result.value.location,
       starts_at: result.value.startsAt,
@@ -66,6 +70,6 @@ export async function POST(req: Request) {
 
   if (error) return redirectWith(req, "/coordinator/shifts/new", "error", error.message);
 
-  await recordAuditEvent({ eventType: "shift_created", shiftId: data.id });
+  await recordAuditEvent({ organisationId, eventType: "shift_created", shiftId: data.id });
   return redirectWith(req, "/coordinator", "message", "Urgent shift created.");
 }
