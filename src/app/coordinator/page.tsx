@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CoordinatorNav } from "@/components/CoordinatorNav";
 import { StatusBadge } from "@/components/StatusBadge";
-import { isCoordinatorAuthenticated } from "@/lib/auth";
+import { getCoordinatorSession } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const metadata: Metadata = { title: "Coordinator dashboard" };
@@ -22,20 +22,34 @@ function formatDate(value: string) {
 export default async function CoordinatorDashboard(props: {
   searchParams: Promise<{ message?: string; error?: string }>;
 }) {
-  if (!(await isCoordinatorAuthenticated())) redirect("/coordinator/login");
+  const session = await getCoordinatorSession();
+  if (!session) redirect("/coordinator/login");
+
   const { message, error } = await props.searchParams;
   const db = getSupabaseAdmin();
+  const organisationId = session.organisationId;
 
-  const [shiftResult, volunteerResult, openResult] = await Promise.all([
+  const [organisationResult, shiftResult, volunteerResult, openResult] = await Promise.all([
+    db.from("organisations").select("name").eq("id", organisationId).single(),
     db
       .from("shifts")
       .select("id,title,location,starts_at,ends_at,status,claimed_at,volunteers(name,email)")
+      .eq("organisation_id", organisationId)
       .order("starts_at", { ascending: false })
       .limit(20),
-    db.from("volunteers").select("id", { count: "exact", head: true }).eq("active", true),
-    db.from("shifts").select("id", { count: "exact", head: true }).eq("status", "open"),
+    db
+      .from("volunteers")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", organisationId)
+      .eq("active", true),
+    db
+      .from("shifts")
+      .select("id", { count: "exact", head: true })
+      .eq("organisation_id", organisationId)
+      .eq("status", "open"),
   ]);
 
+  if (organisationResult.error) throw new Error(organisationResult.error.message);
   if (shiftResult.error) throw new Error(shiftResult.error.message);
   const shifts = shiftResult.data ?? [];
 
@@ -44,7 +58,7 @@ export default async function CoordinatorDashboard(props: {
       <CoordinatorNav />
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Operations</p>
+          <p className="eyebrow">{organisationResult.data.name}</p>
           <h1>Coordinator dashboard</h1>
         </div>
         <Link className="button" href="/coordinator/shifts/new">Create urgent shift</Link>
@@ -69,7 +83,7 @@ export default async function CoordinatorDashboard(props: {
 
         {shifts.length === 0 ? (
           <div className="empty-state">
-            <p>No shifts have been created.</p>
+            <p>No shifts have been created for this organisation.</p>
             <Link href="/coordinator/shifts/new">Create the first shift</Link>
           </div>
         ) : (
