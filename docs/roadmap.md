@@ -1,18 +1,22 @@
 # Roadmap
 
-## Current MVP
+## Current multi-tenant MVP
 
-- coordinator sign-in
+- charity and community-organisation registration
+- individual owner accounts with email/password sign-in
+- organisation-scoped coordinator sessions
+- organisation-level isolation for volunteers, shifts, tokens, notifications and audit records
 - shift creation and overview
 - volunteer management
 - email broadcasting
 - race-safe volunteer claim flow
 - confirmation emails
-- audit and notification records
-- validation and initial automated tests
+- validation and automated unit tests
 
 ## Pilot readiness
 
+- add email verification and password reset
+- add login and registration rate limiting
 - deploy separate staging and production environments
 - add automated expiry processing
 - add delivery retry policy
@@ -21,12 +25,13 @@
 - create data retention and deletion workflow
 - complete a controlled security review
 
-## Multi-user release
+## Multi-user organisation release
 
-- individual coordinator accounts
-- role-based access
-- organisation-level data isolation
-- invitation and offboarding workflows
+- coordinator invitation flow
+- owner, coordinator and viewer permission enforcement
+- coordinator offboarding and session revocation
+- organisation profile and contact settings
+- organisation suspension and deletion controls
 - detailed audit export
 
 ## Future channels
