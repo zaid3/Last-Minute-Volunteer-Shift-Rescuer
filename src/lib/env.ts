@@ -11,10 +11,6 @@ export function getSupabaseEnv() {
   };
 }
 
-export function getCoordinatorPassword(): string {
-  return required("COORDINATOR_PASSWORD");
-}
-
 export function getSessionSecret(): string {
   return required("MANAGER_SESSION_SECRET");
 }
@@ -23,6 +19,5 @@ export function getEmailEnv() {
   return {
     resendApiKey: required("RESEND_API_KEY"),
     from: required("EMAIL_FROM"),
-    coordinatorEmail: required("COORDINATOR_EMAIL"),
   };
 }
