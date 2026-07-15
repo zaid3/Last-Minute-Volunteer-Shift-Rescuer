@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { CoordinatorNav } from "@/components/CoordinatorNav";
 import { StatusBadge } from "@/components/StatusBadge";
-import { isCoordinatorAuthenticated } from "@/lib/auth";
+import { getCoordinatorSession } from "@/lib/auth";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const metadata: Metadata = { title: "Volunteers" };
@@ -11,11 +11,14 @@ export const dynamic = "force-dynamic";
 export default async function VolunteersPage(props: {
   searchParams: Promise<{ message?: string; error?: string }>;
 }) {
-  if (!(await isCoordinatorAuthenticated())) redirect("/coordinator/login");
+  const session = await getCoordinatorSession();
+  if (!session) redirect("/coordinator/login");
+
   const { message, error } = await props.searchParams;
   const { data: volunteers, error: dbError } = await getSupabaseAdmin()
     .from("volunteers")
     .select("id,name,email,active,created_at")
+    .eq("organisation_id", session.organisationId)
     .order("name");
 
   if (dbError) throw new Error(dbError.message);
@@ -25,7 +28,7 @@ export default async function VolunteersPage(props: {
       <CoordinatorNav />
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Volunteer list</p>
+          <p className="eyebrow">Organisation volunteer list</p>
           <h1>Manage volunteers</h1>
         </div>
       </div>
@@ -53,7 +56,7 @@ export default async function VolunteersPage(props: {
         <section className="panel">
           <h2>Current volunteers</h2>
           {!volunteers?.length ? (
-            <p className="muted">No volunteers have been added.</p>
+            <p className="muted">No volunteers have been added to this organisation.</p>
           ) : (
             <ul className="volunteer-list">
               {volunteers.map((volunteer) => (
