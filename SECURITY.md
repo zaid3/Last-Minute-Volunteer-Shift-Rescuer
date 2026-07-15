@@ -17,10 +17,20 @@ Do not open a public issue containing credentials, personal data or an exploitab
 
 - Never expose `SUPABASE_SERVICE_ROLE_KEY` to browser code.
 - Use a unique, high-entropy `MANAGER_SESSION_SECRET`.
-- Use a long coordinator password and rotate it after staff changes.
 - Verify the Resend sending domain.
 - Restrict access to production environment variables.
+- Run every database migration in filename order.
 - Configure database backups and retention before storing live volunteer data.
 - Review audit and notification logs without copying personal data into external systems.
 
-The first release uses one shared coordinator credential. Multi-user identity and role-based access are planned before multi-organisation use.
+## Multi-tenant requirements
+
+- Every query involving volunteers, shifts, claim tokens, notifications or audit records must include the authenticated `organisation_id`.
+- Every new operational record must be written with that organisation ID.
+- Do not trust an organisation ID submitted through a normal coordinator form; use the signed session value.
+- Machine-to-machine broadcast requests must provide both the manager API key and `x-organisation-id`.
+- The service role bypasses RLS, so server-side tenant filtering is a mandatory security boundary.
+
+## Current limitations
+
+The MVP stores scrypt password hashes and signed HttpOnly sessions. Before broad public release, add email verification, password reset, login rate limiting, coordinator invitation controls, account recovery and monitored security logging.
