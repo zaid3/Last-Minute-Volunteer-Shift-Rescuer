@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- Added public charity and community-organisation registration
+- Replaced the shared coordinator password with individual email/password owner accounts
+- Added scrypt password hashing and signed organisation-scoped sessions
+- Added `organisations` and `coordinators` database tables
+- Added `organisation_id` isolation to volunteers, shifts, claim tokens, notifications and audit events
+- Updated broadcasts and successful claim notifications to use the owning organisation
+- Added password and session security tests
+- Updated deployment, architecture and security documentation for multi-tenant use
+
 ## 0.2.0
 
 - Added coordinator login and signed server-side session cookie
