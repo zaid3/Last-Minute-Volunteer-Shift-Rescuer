@@ -15,16 +15,13 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
       RESEND_API_KEY: re_test
       EMAIL_FROM: Shift Rescuer <test@example.org>
-      COORDINATOR_EMAIL: coordinator@example.org
-      COORDINATOR_PASSWORD: test-password
       MANAGER_SESSION_SECRET: test-session-secret-at-least-32-characters
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      - run: npm install
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
