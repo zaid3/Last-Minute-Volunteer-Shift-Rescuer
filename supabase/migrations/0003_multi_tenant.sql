@@ -61,7 +61,7 @@ begin
     update audit_events set organisation_id = v_legacy_id where organisation_id is null;
     update notification_log set organisation_id = v_legacy_id where organisation_id is null;
   end if;
-end
+end;
 $$;
 
 alter table volunteers alter column organisation_id set not null;
